@@ -1,0 +1,13 @@
+{
+  "name": "tiktok-pyramid-live-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TikTok LIVE event bridge for the Pyramid Live Godot game",
+  "main": "server.js",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "tiktok-live-connector": "^2.5.0",
+    "ws": "^8.21.3"
+  }
+}
