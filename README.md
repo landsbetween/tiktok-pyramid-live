@@ -44,6 +44,17 @@ Keys: L like, K like storm, G gift, H big gift, F follow, B earthquake, E finish
 
 Env for the server: `LIKES_PER_BLOCK`, `BLOCKS_PER_DIAMOND`, `BLOCKS_PER_FOLLOW`, `QUAKE_GIFTS`, `PORT`.
 
+## Recording a TikTok clip
+`--reel` plays a scripted 13.5 s show (levelled cast walks in, Galaxy, earthquake, capstone + confetti) with the game
+audio muted. Record it with Godot's Movie Maker at full resolution (the temporary `override.cfg` lifts the 540×960 window):
+```bash
+cd game
+printf '[display]\n\nwindow/size/window_width_override=1080\nwindow/size/window_height_override=1920\n' > override.cfg
+godot --path . --write-movie reel.avi --fixed-fps 30 --quit-after 420 -- --reel --size=9
+rm override.cfg
+ffmpeg -i reel.avi -i your_sound.mp3 -map 0:v -map 1:a -c:v libx264 -crf 17 -pix_fmt yuv420p -c:a aac -shortest clip.mp4
+```
+
 ## TikTok LIVE Studio
 
 Add source → Window capture → "Pyramid Live". Keep the top of the screen for the banners and the bottom 27% free: TikTok draws its chat there.

@@ -168,6 +168,9 @@ func _ready() -> void:
 		_spawn_worker("", "", false)
 	if args.has("shot"):
 		_take_shot()
+	if args.has("reel"):
+		AudioServer.set_bus_mute(0, true)   # the soundtrack is added afterwards
+		get_window().size = Vector2i(1080, 1920)   # record at full TikTok resolution
 	if args.has("skins"):   # debug: line up every skin in front of the camera
 		var all := ["worker", "steve", "explorer", "bedouin", "mummy", "ninja", "spartan", "cleopatra", "pharaoh", "anubis", "gold_pharaoh"]
 		for i in all.size():
@@ -593,7 +596,10 @@ func _complete() -> void:
 	var list := round_credit.values()
 	list.sort_custom(func(a, b): return a.blocks > b.blocks)
 	var next_theme: Dictionary = world.THEMES[(theme_i + 1) % world.THEMES.size()]
-	ui.show_board(pyramid_no, list, str(next_theme.name))
+	if args.has("reel"):
+		ui.popup("COMPLETE!")
+	else:
+		ui.show_board(pyramid_no, list, str(next_theme.name))
 	get_tree().create_timer(7.0).timeout.connect(_next_pyramid)
 
 
@@ -853,11 +859,65 @@ func _process(delta: float) -> void:
 			"draw": int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
 			"workers": workers.size(), "pending": pending, "placed": placed_count, "total": total,
 			"w": get_viewport().size.x, "h": get_viewport().size.y})
+	if args.has("reel"):
+		_reel(delta)
 	if args.has("demo"):
 		demo_t -= delta
 		if demo_t <= 0.0:
 			demo_t = randf_range(0.6, 2.0)
 			_demo_event(["like", "like", "like", "gift", "gift", "follow"].pick_random())
+
+
+# ---------- scripted clip for TikTok (--reel, ~13.5 s) ----------
+var reel_t := 0.0
+var reel_like_t := 0.0
+var reel_done := {}
+const REEL_CAST := [   # name, level, skin
+	["pharaoh_max", 22, "gold_pharaoh"], ["cleo_patra", 6, "cleopatra"], ["desert_fox", 3, "explorer"],
+	["anubis_fan", 12, "anubis"], ["mummy_mia", 1, "mummy"], ["scarab77", 5, "ninja"],
+	["nile_boy", 2, "steve"], ["oasis_girl", 55, "pharaoh"],
+]
+
+
+func _reel_user(n: String) -> Dictionary:
+	return {"id": n, "name": n, "avatar": "https://api.dicebear.com/9.x/thumbs/png?seed=%s&size=96" % n}
+
+
+func _reel_once(key: String, at: float) -> bool:
+	if reel_t >= at and not reel_done.has(key):
+		reel_done[key] = true
+		return true
+	return false
+
+
+func _reel(delta: float) -> void:
+	reel_t += delta
+	if _reel_once("prebuild", 0.0):   # start with a pyramid ~60% done so the quake has something to wreck
+		for k in int(slots.size() * 0.6):
+			_place(_reserve())
+	# the cast walks in one by one, already levelled (auras) and dressed, without extra blocks or banners
+	for i in REEL_CAST.size():
+		if _reel_once("cast%d" % i, 0.15 + i * 0.3):
+			var c: Array = REEL_CAST[i]
+			viewer_stats[c[0]] = {"likes": 0, "coins": (int(c[1]) - 1) * COINS_PER_LEVEL}
+			var w = _spawn_worker(c[0], c[0], true, c[2])
+			w.like_only = false
+			w.set_level(int(c[1]))
+			_tally(top_builders, _reel_user(c[0]), 40 + int(c[1]) * 9)
+	reel_like_t -= delta
+	if reel_t > 1.0 and reel_t < 10.0 and reel_like_t <= 0.0:
+		reel_like_t = 0.3
+		_on_event({"type": "like", "user": _reel_user(REEL_CAST.pick_random()[0]), "likes": 15})
+	if _reel_once("galaxy", 3.6):
+		_on_event({"type": "gift", "user": _reel_user("oasis_girl"), "giftName": "Galaxy", "count": 1, "coins": 0, "blocks": 60})
+	if _reel_once("quake", 7.4):
+		_on_event({"type": "quake", "user": _reel_user("anubis_fan"), "giftName": "GG", "power": 18, "coins": 0})
+	if _reel_once("lion", 9.2):
+		_on_event({"type": "gift", "user": _reel_user("pharaoh_max"), "giftName": "Lion", "count": 1, "coins": 0, "blocks": 80})
+	if reel_t > 10.6 and not celebrating and next_slot < slots.size():
+		for k in 4:   # capstone lands at the end of the track
+			if next_slot < slots.size():
+				_place(_reserve())
 
 
 # ---------- demo / test ----------
