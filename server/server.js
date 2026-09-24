@@ -30,8 +30,9 @@ function broadcast(msg) {
 
 function userInfo(u = {}) {
   return {
-    id: u.uniqueId || u.userId || 'anon',
-    name: u.nickname || u.uniqueId || 'Anonymous',
+    // tiktok-live-connector 2.x: the @handle is in displayId, uniqueId is often empty
+    id: u.uniqueId || u.displayId || u.userId || u.id || 'anon',
+    name: u.nickname || u.uniqueId || u.displayId || 'Anonymous',
     avatar:
       u.profilePicture?.url?.[0] ||
       u.profilePicture?.urls?.[0] ||
@@ -96,7 +97,7 @@ async function connectTikTok() {
     console.log('ℹ️  No TikTok username given. Usage: node server.js <username>. Use /api/sim or the demo keys in the game.');
     return;
   }
-  const { TikTokLiveConnection, WebcastEvent } = require('tiktok-live-connector');
+  const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
   const conn = new TikTokLiveConnection(USERNAME, {
     processInitialData: false,
     enableExtendedGiftInfo: false, // true needs a paid EulerStream plan; diamondCount comes with every gift anyway
@@ -112,7 +113,7 @@ async function connectTikTok() {
     handleGift(userInfo(d.user), name, Number(diamonds), Number(d.repeatCount || 1));
   });
   conn.on(WebcastEvent.FOLLOW, (d) => handleFollow(userInfo(d.user)));
-  conn.on(WebcastEvent.LIKE, (d) => handleLike(userInfo(d.user), Number(d.likeCount || 1)));
+  conn.on(WebcastEvent.LIKE, (d) => handleLike(userInfo(d.user), Number(d.count ?? d.likeCount ?? 1)));
   conn.on(WebcastEvent.CHAT, (d) => handleChat(userInfo(d.user), d.comment || ''));
   conn.on(WebcastEvent.MEMBER, (d) => handleJoin(userInfo(d.user)));
   conn.on(WebcastEvent.STREAM_END, () => {
@@ -128,6 +129,19 @@ async function connectTikTok() {
   conn.on('error', (e) => console.error('TikTok error:', e?.message || e));
 
   let connecting = false;
+  // Stale-connection guard: TikTok sometimes keeps the socket open but stops sending.
+  // Any raw frame counts as a sign of life; after 60 s of silence while "connected", reconnect.
+  let lastData = Date.now();
+  conn.on(ControlEvent.WEBSOCKET_DATA, () => { lastData = Date.now(); });
+  setInterval(async () => {
+    if (conn.isConnected && Date.now() - lastData > 60000) {
+      console.log('⚠️  No data from TikTok for 60s, reconnecting...');
+      lastData = Date.now();
+      try { await conn.disconnect(); } catch {}
+      setTimeout(tryConnect, 1000);
+    }
+  }, 15000);
+
   async function tryConnect() {
     if (connecting || conn.isConnected) return;
     connecting = true;
