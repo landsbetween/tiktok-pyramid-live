@@ -87,6 +87,17 @@ func _ready() -> void:
 	if args.has("borderless"):
 		get_window().borderless = true
 		get_window().position = Vector2i.ZERO
+	Engine.max_fps = 60   # LIVE Studio takes 30 fps anyway; do not burn the GPU when vsync is off
+	if args.has("ontop"):
+		# Window capture on macOS freezes when the window is covered: keep it always on top,
+		# as tall as the screen (sharper capture) and parked at the right edge.
+		var win := get_window()
+		var r := DisplayServer.screen_get_usable_rect(win.current_screen)
+		var h := r.size.y
+		var w := int(h * 9.0 / 16.0)
+		win.size = Vector2i(w, h)
+		win.position = Vector2i(r.position.x + r.size.x - w, r.position.y)
+		win.always_on_top = true
 	font = SystemFont.new()
 	font.font_names = PackedStringArray(["Arial Rounded MT Bold", "Segoe UI Black", "Arial Black", "Arial"])
 	font.font_weight = 800

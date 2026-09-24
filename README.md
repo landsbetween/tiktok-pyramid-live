@@ -31,7 +31,7 @@ It asks for the TikTok username once (stored in `%USERPROFILE%\.tiktok-pyramid-u
 - `game/` — Godot 4.7 project. Everything (scene, workers, props, UI) is built in code under `game/scripts/`.
 
 Game options (after `--` on the Godot command line, or passed to `start.bat`):
-`--window=608x1080`, `--borderless`, `--debug` (FPS line), `--demo` (random events), `--size=15` (start pyramid size), `--skins` (debug: line up every skin in front of the camera), `--tops` (show the TOP LIKERS / TOP DONORS boards, hidden by default).
+`--window=608x1080`, `--borderless`, `--debug` (FPS line), `--demo` (random events), `--size=15` (start pyramid size), `--ontop` (macOS: keep the window always on top, full screen height, at the right edge; window capture freezes when the window is covered), `--skins` (debug: line up every skin in front of the camera), `--tops` (show the TOP LIKERS / TOP DONORS boards, hidden by default).
 
 Keys: L like, K like storm, G gift, H big gift, F follow, B earthquake, E finish pyramid, D toggle FPS.
 
