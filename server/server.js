@@ -106,11 +106,14 @@ async function connectTikTok() {
 
   conn.on(WebcastEvent.GIFT, (d) => {
     // Streakable gifts (giftType 1) are counted once the streak ends
-    const giftType = d.giftDetails?.giftType ?? d.giftType;
+    // tiktok-live-connector 2.x (proto v3): price, name and type live in d.gift
+    const giftType = d.gift?.type ?? d.giftDetails?.giftType ?? d.giftType;
     if (giftType === 1 && !d.repeatEnd) return;
-    const diamonds = d.diamondCount ?? d.giftDetails?.diamondCount ?? d.extendedGiftInfo?.diamond_count ?? 1;
-    const name = d.giftDetails?.giftName ?? d.giftName ?? d.extendedGiftInfo?.name ?? 'Gift';
-    handleGift(userInfo(d.user), name, Number(diamonds), Number(d.repeatCount || 1));
+    const diamonds = d.gift?.diamondCount ?? d.diamondCount ?? d.giftDetails?.diamondCount ?? d.extendedGiftInfo?.diamond_count ?? 1;
+    const name = d.gift?.name ?? d.giftDetails?.giftName ?? d.giftName ?? d.extendedGiftInfo?.name ?? 'Gift';
+    const count = Number(d.repeatCount || d.comboCount || 1);
+    console.log(`🎁 ${userInfo(d.user).id}: ${name} x${count} (${diamonds} coins each)`);
+    handleGift(userInfo(d.user), name, Number(diamonds), count);
   });
   conn.on(WebcastEvent.FOLLOW, (d) => handleFollow(userInfo(d.user)));
   conn.on(WebcastEvent.LIKE, (d) => handleLike(userInfo(d.user), Number(d.count ?? d.likeCount ?? 1)));
