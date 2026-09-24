@@ -10,14 +10,23 @@ Cartoon, Roblox-like look, vertical 1080×1920, runs as a native window (no brow
 | Viewer action | In the game |
 |---|---|
 | Likes | every 5 likes from a viewer spawn **their own worker** (with a Minecraft-style name tag) who places 1 block; no likes for 15 s and the worker vanishes in a puff |
-| Gift | 1 coin = 10 blocks, a banner with the avatar, a random meme sound |
+| Comment | 1 block for its author (once per 10 s) and their worker walks in |
+| Comment `1` / `2` / `3` | vote for the next building (from 45% built); the vote weighs as much as the viewer's level |
+| Gift | 1 coin = 10 blocks that are laid in **gold**, so the donors' part of the building shines; a banner with the avatar, a random meme sound |
 | Follow | +5 blocks and your own worker that stays for the whole stream |
 | GG, Fireworks, Boxing Gloves, Rocket | earthquake: the top blocks fly off |
+
+## Buildings
+Every round is a different building, chosen by the chat vote, and they grow from round to round (tier 0–4):
+**Pyramid** (golden capstone), **Ziggurat** (2-block steps, blue shrine, stairway), **Obelisk** (hieroglyph bands, gold tip),
+**Fortress** (walls, towers, gate, keep, flag), **Temple** (columns, gold architrave, red gable roof), **Lighthouse** (red/white stripes, gallery, light).
+Blueprints live in `game/scripts/buildings.gd` as coloured 1×1×1 block slots; adding a new one is one function.
+Test a building with `--building=castle --tier=4`.
 
 Workers carry blocks from the quarry and throw them onto the pyramid. A big backlog (40+ blocks) also rains blocks from the sky.
 When nobody is giving, one free block appears every 3 seconds.
 Workers wear random skins (worker, Steve, explorer, bedouin, mummy, ninja, spartan, Cleopatra, pharaoh, Anubis); gifts of 10+ coins get a royal skin, 100+ coins the gold pharaoh. Live **TOP LIKERS** and **TOP DONORS** boards (whole stream) sit under the progress bar.
-A finished pyramid gets a golden capstone, confetti and a Top Builders board, then a bigger one starts (7 → 9 → … → 15 wide) in the next look: Sunny Day, Golden Sunset, Starry Night.
+A finished building gets its crown (capstone, flag or light), confetti and a Top Builders board, then the voted building starts in the next look: Sunny Day, Golden Sunset, Starry Night.
 
 ## Levels, auras and TOP BUILDERS
 Every viewer has a level for the whole stream: **+1 LVL per 500 likes and per 10 coins**. A worker lifts up to *level + 2*

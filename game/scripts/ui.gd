@@ -116,12 +116,12 @@ func _build_progress() -> void:
 
 
 func set_rules(likes_per_block: int, blocks_per_coin := 10) -> void:
-	rules.text = "%d LIKES = 1 BLOCK  •  1 COIN = %d BLOCKS\nFOLLOW = YOUR OWN WORKER  •  GG = EARTHQUAKE" % [likes_per_block, blocks_per_coin]
+	rules.text = "%d LIKES = 1 BLOCK  •  1 COIN = %d GOLD BLOCKS\nCOMMENT = 1 BLOCK  •  FOLLOW = WORKER  •  GG = QUAKE" % [likes_per_block, blocks_per_coin]
 
 
-func set_progress(no: int, done: int, total: int) -> void:
-	title.text = "PYRAMID #%d" % no
-	count_label.text = "%d / %d" % [done, total]
+func set_progress(no: int, done: int, total: int, bname := "PYRAMID") -> void:
+	title.text = "%s #%d" % [bname, no]
+	count_label.text = "%s  %d / %d" % [bname, done, total]
 	var w := 0.0 if total == 0 else bar_w * float(done) / float(total)
 	bar_fill.size.x = maxf(w, 0.0)
 	bar_fill.visible = w >= 40.0
@@ -368,8 +368,8 @@ func _build_board() -> void:
 	v.add_child(board_list)
 
 
-func show_board(no: int, top: Array, theme_name: String) -> void:
-	board_title.text = "PYRAMID #%d DONE!" % no
+func show_board(no: int, top: Array, theme_name: String, bname := "PYRAMID") -> void:
+	board_title.text = "%s DONE!" % bname
 	for c in board_list.get_children():
 		c.queue_free()
 	if top.is_empty():
@@ -399,6 +399,95 @@ func show_board(no: int, top: Array, theme_name: String) -> void:
 	tw.set_parallel(true)
 	tw.tween_property(board, "modulate:a", 1.0, 0.25)
 	tw.tween_property(board, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+# ---------- chat vote: NEXT BUILD ----------
+var vote_panel: PanelContainer
+var vote_rows: Array = []   # [name label, bar fill, count label]
+
+
+func _build_vote() -> void:
+	vote_panel = PanelContainer.new()
+	vote_panel.add_theme_stylebox_override("panel", _flat(Color(0.05, 0.1, 0.2, 0.8), 30, 5, Color(0.55, 0.9, 1.0)))
+	vote_panel.position = Vector2(150, 346)
+	vote_panel.custom_minimum_size = Vector2(780, 0)
+	vote_panel.visible = false
+	root.add_child(vote_panel)
+	var m := MarginContainer.new()
+	for side in ["left", "right"]:
+		m.add_theme_constant_override("margin_" + side, 22)
+	for side in ["top", "bottom"]:
+		m.add_theme_constant_override("margin_" + side, 10)
+	vote_panel.add_child(m)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	m.add_child(v)
+	v.add_child(_label("NEXT BUILD?  COMMENT 1 / 2 / 3", 34, Color(0.6, 0.92, 1.0), 10))
+	for i in 3:
+		var row := Control.new()
+		row.custom_minimum_size = Vector2(736, 46)
+		v.add_child(row)
+		var bg := Panel.new()
+		bg.add_theme_stylebox_override("panel", _flat(Color(1, 1, 1, 0.1), 16))
+		bg.position = Vector2(0, 4)
+		bg.size = Vector2(736, 38)
+		row.add_child(bg)
+		var fill := Panel.new()
+		fill.add_theme_stylebox_override("panel", _flat(Color(0.35, 0.75, 1.0, 0.75), 16))
+		fill.position = Vector2(0, 4)
+		fill.size = Vector2(0, 38)
+		row.add_child(fill)
+		var name := _label("", 32, Color.WHITE, 9)
+		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name.position = Vector2(14, 0)
+		name.size = Vector2(560, 46)
+		row.add_child(name)
+		var cnt := _label("0", 32, GOLD, 9)
+		cnt.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		cnt.position = Vector2(560, 0)
+		cnt.size = Vector2(162, 46)
+		row.add_child(cnt)
+		vote_rows.append([name, fill, cnt])
+
+
+func show_vote(names: Array) -> void:
+	if vote_panel == null:
+		_build_vote()
+	for i in 3:
+		var r: Array = vote_rows[i]
+		r[0].text = "%d  %s" % [i + 1, names[i] if i < names.size() else ""]
+		r[0].add_theme_color_override("font_color", Color.WHITE)
+	vote_panel.visible = true
+	vote_panel.modulate.a = 0.0
+	create_tween().tween_property(vote_panel, "modulate:a", 1.0, 0.3)
+
+
+func set_vote(counts: Array) -> void:
+	if vote_panel == null:
+		return
+	var total := 0
+	for c in counts:
+		total += int(c)
+	for i in 3:
+		var r: Array = vote_rows[i]
+		var frac := 0.0 if total == 0 else float(counts[i]) / float(total)
+		r[2].text = str(counts[i])
+		create_tween().tween_property(r[1], "size:x", 736.0 * frac, 0.25)
+
+
+func vote_winner(i: int) -> void:
+	if vote_panel == null:
+		return
+	vote_rows[i][0].add_theme_color_override("font_color", GOLD)
+	var tw := create_tween()
+	tw.tween_interval(3.0)
+	tw.tween_property(vote_panel, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(func(): vote_panel.visible = false)
+
+
+func hide_vote() -> void:
+	if vote_panel != null:
+		vote_panel.visible = false
 
 
 func hide_board() -> void:

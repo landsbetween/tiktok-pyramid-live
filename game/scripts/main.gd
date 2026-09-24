@@ -22,6 +22,7 @@ var UiScript = preload("res://scripts/ui.gd")
 var NetScript = preload("res://scripts/net.gd")
 var FxScript = preload("res://scripts/fx.gd")
 var WorldScript = preload("res://scripts/world.gd")
+var BuildingsScript = preload("res://scripts/buildings.gd")
 
 var args := {}
 var quarry_pos := QUARRY
@@ -62,6 +63,21 @@ var perf_t := 0.0
 var demo_t := 0.0
 var round_credit := {}
 var pop_anim := {}
+
+# buildings: every round a different blueprint, the chat votes for the next one
+const CHAT_BLOCK_COOLDOWN := 10.0   # a comment gives its author 1 block, once per 10 s
+const VOTE_AT := 0.45               # voting opens when the building is 45% done
+var builder
+var bld := {}
+var bld_type := "pyramid"
+var next_type := ""
+var gold_quota := 0                 # blocks bought with gifts are placed in gold
+var chat_cool := {}
+var vote_active := false
+var vote_opts: Array = []
+var vote_by_user := {}              # uid -> [option index, weight]
+var crown_flag: Node3D
+var crown_light: MeshInstance3D
 
 var cam: Camera3D
 var env: Environment
@@ -163,6 +179,10 @@ func _ready() -> void:
 	capstone.rotation.y = PI / 4.0
 	capstone.visible = false
 	add_child(capstone)
+	_build_crowns()
+	builder = BuildingsScript.new()
+	if args.has("building") and BuildingsScript.TYPES.has(str(args.building)):
+		bld_type = str(args.building)
 	_new_pyramid()
 	for i in NPC_WORKERS:
 		_spawn_worker("", "", false)
@@ -375,8 +395,58 @@ func _hidden(i: int) -> Transform3D:
 	return Transform3D(Basis().scaled(Vector3.ONE * 0.001), slots[i])
 
 
+func _build_crowns() -> void:
+	crown_flag = Node3D.new()
+	var pole := MeshInstance3D.new()
+	pole.mesh = box_mesh(Vector3(0.12, 2.6, 0.12))
+	pole.material_override = mat(Color(0.45, 0.3, 0.18))
+	pole.position = Vector3(0, 1.3, 0)
+	crown_flag.add_child(pole)
+	var cloth := MeshInstance3D.new()
+	cloth.mesh = box_mesh(Vector3(1.3, 0.8, 0.06))
+	cloth.material_override = mat(Color(0.95, 0.2, 0.25))
+	cloth.position = Vector3(0.7, 2.15, 0)
+	cloth.name = "Cloth"
+	crown_flag.add_child(cloth)
+	crown_flag.visible = false
+	add_child(crown_flag)
+	crown_light = MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.7
+	sm.height = 1.4
+	crown_light.mesh = sm
+	var lm := StandardMaterial3D.new()
+	lm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	lm.albedo_color = Color(1.0, 0.9, 0.5)
+	lm.emission_enabled = true
+	lm.emission = Color(1.0, 0.85, 0.4)
+	lm.emission_energy_multiplier = 3.0
+	crown_light.material_override = lm
+	crown_light.visible = false
+	add_child(crown_light)
+
+
+func _crown_node() -> Node3D:
+	match str(bld.get("crown", "pyramidion")):
+		"flag":
+			return crown_flag
+		"light":
+			return crown_light
+	return capstone
+
+
+func _slot_color(i: int, code: int) -> Color:
+	var base: Color = BuildingsScript.PALETTE[code]
+	var h := fposmod(sin(i * 12.9898) * 43758.5453, 1.0)
+	var v := 0.9 + h * 0.16
+	return Color(base.r * v, base.g * v * (0.97 + h * 0.05), base.b * v)
+
+
 func _new_pyramid() -> void:
-	slots = _build_slots(pyr_size)
+	bld = builder.make(bld_type, pyramid_no - 1 + int(args.get("tier", "0")))
+	bld_type = str(bld.type)
+	slots = bld.slots
+	pyr_size = int(round(float(bld.half) * 2.0))
 	slot_state = PackedByteArray()
 	slot_state.resize(slots.size())
 	next_slot = 0
@@ -390,25 +460,29 @@ func _new_pyramid() -> void:
 	mm.instance_count = slots.size()
 	for i in slots.size():
 		mm.set_instance_transform(i, _hidden(i))
-		var h := fposmod(sin(i * 12.9898) * 43758.5453, 1.0)
-		var v := 0.9 + h * 0.16
-		mm.set_instance_color(i, Color(SAND_BLOCK.r * v, SAND_BLOCK.g * v * (0.97 + h * 0.05), SAND_BLOCK.b * v))
-	mm.custom_aabb = AABB(Vector3(-8, 0, -8), Vector3(16, 10, 16))
+		mm.set_instance_color(i, _slot_color(i, int(bld.colors[i])))
+	mm.custom_aabb = AABB(Vector3(-9, 0, -9), Vector3(18, 20, 18))
 	mmi.multimesh = mm
 	mmi.position = Vector3.ZERO
 	capstone.visible = false
+	crown_flag.visible = false
+	crown_light.visible = false
+	vote_active = false
+	vote_by_user.clear()
+	next_type = ""
+	ui.hide_vote()
 	var t: Dictionary = world.apply_theme(theme_i)
 	sun.light_color = t.sun
 	sun.light_energy = t.sun_e
 	env.ambient_light_color = t.amb
 	env.ambient_light_energy = t.amb_e
-	ui.set_progress(pyramid_no, 0, slots.size())
-	# frame: pyramid + quarry fill the band between the HUD (top 22%) and TikTok chat (bottom 27%)
-	var s := float(pyr_size)
+	ui.set_progress(pyramid_no, 0, slots.size(), str(bld.title))
+	# frame: building + quarry fill the band between the HUD (top 22%) and TikTok chat (bottom 27%)
+	var s := float(bld.half) * 2.0
 	quarry_pos = Vector3(1.6 + 0.39 * s, 0, 3.3 + 0.84 * s)
-	var cam_size := (s * 1.414 + 6.0) / 0.5625
-	var top_sy := 0.816 * (s + 1.0) * 0.5
+	var top_sy := 0.816 * (float(bld.height) + 1.5) + 0.408 * float(bld.half) * 0.5
 	var bottom_sy := -0.408 * (quarry_pos.x + quarry_pos.z) - 2.5
+	var cam_size := maxf((s * 1.414 + 6.0) / 0.5625, (top_sy - bottom_sy) / 0.5)
 	var centre_sy := (top_sy + bottom_sy) * 0.5 - 0.025 * cam_size
 	var look := Vector3(-centre_sy / 0.816, 0, -centre_sy / 0.816)
 	var first := pyramid_no == 1
@@ -435,10 +509,18 @@ func _place(i: int) -> void:
 	slot_state[i] = 2
 	placed_count += 1
 	mm.set_instance_transform(i, Transform3D(Basis(), slots[i]))
+	var code := int(bld.colors[i])
+	if gold_quota > 0 and (code == BuildingsScript.SAND or code == BuildingsScript.STONE or code == BuildingsScript.WHITE):
+		gold_quota -= 1   # gift blocks: the donors' part of the building shines gold
+		mm.set_instance_color(i, _slot_color(i, BuildingsScript.GOLD))
+	else:
+		mm.set_instance_color(i, _slot_color(i, code))
 	pop_anim[i] = 0.0
 	fx.dust(slots[i] + Vector3(0, -0.45, 0))
 	fx.thud()
-	ui.set_progress(pyramid_no, placed_count, slots.size())
+	ui.set_progress(pyramid_no, placed_count, slots.size(), str(bld.title))
+	if not vote_active and next_type == "" and placed_count >= int(slots.size() * VOTE_AT):
+		_start_vote()
 	if placed_count >= slots.size():
 		_complete()
 
@@ -466,7 +548,7 @@ func take_blocks(cap := 0) -> int:
 
 
 func drop_point() -> Vector3:
-	var h := pyr_size * 0.5
+	var h := float(bld.get("half", pyr_size * 0.5))
 	return Vector3(randf_range(-h + 0.6, h - 0.6), 0, h + 0.8 + randf() * 0.5)
 
 
@@ -554,7 +636,7 @@ func quake(power: int) -> void:
 	next_slot = lowest
 	shake = 1.0
 	fx.boom(Vector3(0, 1.0, 0))
-	ui.set_progress(pyramid_no, placed_count, slots.size())
+	ui.set_progress(pyramid_no, placed_count, slots.size(), str(bld.title))
 
 
 func _debris(pos: Vector3) -> void:
@@ -583,43 +665,108 @@ func _debris_step(t: float, b: Node3D, a: Vector3, c: Vector3) -> void:
 
 func _complete() -> void:
 	celebrating = true
-	var top: Vector3 = slots[slots.size() - 1]
-	capstone.position = top + Vector3(0, 1.5, 0)
-	capstone.scale = Vector3.ONE * 0.01
-	capstone.visible = true
+	var top: Vector3 = bld.top
+	var crown := _crown_node()
+	var rest := top.y + (1.0 if crown == capstone else 0.5)
+	crown.position = Vector3(top.x, rest + 0.5, top.z)
+	crown.scale = Vector3.ONE * 0.01
+	crown.visible = true
 	var tw := create_tween()
-	tw.tween_property(capstone, "scale", Vector3.ONE, 0.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.parallel().tween_property(capstone, "position:y", top.y + 1.0, 0.6)
+	tw.tween_property(crown, "scale", Vector3.ONE, 0.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(crown, "position:y", rest, 0.6)
 	fx.party(top + Vector3(0, 1.5, 0))
 	for w in workers:
 		w.jump()
 	var list := round_credit.values()
 	list.sort_custom(func(a, b): return a.blocks > b.blocks)
+	_finish_vote()
 	var next_theme: Dictionary = world.THEMES[(theme_i + 1) % world.THEMES.size()]
+	var next_label := "%s  •  %s" % [BuildingsScript.TITLES[next_type], str(next_theme.name)]
 	if args.has("reel"):
 		ui.popup("COMPLETE!")
 	else:
-		ui.show_board(pyramid_no, list, str(next_theme.name))
+		ui.show_board(pyramid_no, list, next_label, str(bld.title))
 	get_tree().create_timer(7.0).timeout.connect(_next_pyramid)
 
 
 func _next_pyramid() -> void:
 	ui.hide_board()
-	var layers := float(slots[slots.size() - 1].y) + 2.0
+	var layers := float(bld.height) + 4.0
+	var crown := _crown_node()
 	var tw := create_tween()
 	tw.tween_property(mmi, "position:y", -layers, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	tw.parallel().tween_property(capstone, "position:y", capstone.position.y - layers, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tw.parallel().tween_property(crown, "position:y", crown.position.y - layers, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	tw.tween_callback(_advance)
 	shake = 0.6
 	fx.boom(Vector3(0, 0.3, 0))
 
 
 func _advance() -> void:
-	pyr_size = mini(pyr_size + 2, MAX_SIZE)
 	pyramid_no += 1
+	bld_type = next_type if next_type != "" else BuildingsScript.TYPES.pick_random()
 	theme_i = (theme_i + 1) % world.THEMES.size()
 	_new_pyramid()
 	celebrating = false
+
+
+# ---------- chat vote for the next building ----------
+func _start_vote() -> void:
+	var pool: Array = BuildingsScript.TYPES.duplicate()
+	pool.erase(bld_type)
+	pool.shuffle()
+	vote_opts = pool.slice(0, 3)
+	vote_by_user.clear()
+	vote_active = true
+	var names := []
+	for t in vote_opts:
+		names.append(BuildingsScript.TITLES[t])
+	ui.show_vote(names)
+	ui.set_vote(_vote_counts())
+
+
+## "1", "2", "3" or the building's name anywhere in the comment. Weight = the viewer's level.
+func _cast_vote(u: Dictionary, text: String) -> bool:
+	if not vote_active:
+		return false
+	var uid := str(u.get("id", ""))
+	if uid == "" or uid == "anon":
+		return false
+	var t := text.strip_edges().to_lower()
+	var pick := -1
+	for i in vote_opts.size():
+		var title: String = BuildingsScript.TITLES[vote_opts[i]].to_lower()
+		if t == str(i + 1) or t.begins_with(str(i + 1) + " ") or t.contains(title) or t.contains(str(vote_opts[i])):
+			pick = i
+			break
+	if pick < 0:
+		return false
+	vote_by_user[uid] = [pick, level_of(uid)]
+	ui.set_vote(_vote_counts())
+	return true
+
+
+func _vote_counts() -> Array:
+	var c := [0, 0, 0]
+	for v in vote_by_user.values():
+		c[v[0]] += int(v[1])
+	return c
+
+
+func _finish_vote() -> void:
+	if not vote_active:
+		if next_type == "":
+			var pool: Array = BuildingsScript.TYPES.duplicate()
+			pool.erase(bld_type)
+			next_type = pool.pick_random()
+		return
+	vote_active = false
+	var c := _vote_counts()
+	var best := randi() % vote_opts.size()
+	for i in vote_opts.size():
+		if c[i] > c[best]:
+			best = i
+	next_type = vote_opts[best]
+	ui.vote_winner(best)
 
 
 # ---------- workers ----------
@@ -756,8 +903,24 @@ func _handle_event(d: Dictionary, u: Dictionary) -> void:
 			if c is Dictionary and c.has("blocksPerDiamond"):
 				blocks_per_coin = maxi(1, int(c.blocksPerDiamond))
 			ui.set_rules(likes_per_block, blocks_per_coin)
+		"chat":
+			var voted := _cast_vote(u, str(d.get("text", "")))
+			# every comment is 1 block for its author (cooldown), so the chat keeps talking
+			var uid := str(u.get("id", ""))
+			var now := Time.get_ticks_msec() / 1000.0
+			if uid != "" and uid != "anon" and now - float(chat_cool.get(uid, -100.0)) >= CHAT_BLOCK_COOLDOWN:
+				chat_cool[uid] = now
+				var w = _ensure_worker(u, "like")
+				if w != null:
+					w.own += 1
+					_credit(u, 1)
+			if voted:
+				var ww = by_user.get(uid)
+				if ww != null and is_instance_valid(ww):
+					ww.jump()
 		"gift":
 			var n := int(d.get("blocks", 1))
+			gold_quota += n
 			pending += n
 			_credit(u, n)
 			_ensure_worker(u, "gift", int(d.get("coins", n)))
@@ -865,7 +1028,7 @@ func _process(delta: float) -> void:
 		demo_t -= delta
 		if demo_t <= 0.0:
 			demo_t = randf_range(0.6, 2.0)
-			_demo_event(["like", "like", "like", "gift", "gift", "follow"].pick_random())
+			_demo_event(["like", "like", "like", "gift", "gift", "follow", "chat", "chat"].pick_random())
 
 
 # ---------- scripted clip for TikTok (--reel, ~13.5 s) ----------
@@ -943,6 +1106,8 @@ func _demo_event(kind: String) -> void:
 			_on_event({"type": "follow", "user": _fake_user(), "blocks": 5})
 		"quake":
 			_on_event({"type": "quake", "user": _fake_user(), "giftName": "GG", "power": 5})
+		"chat":
+			_on_event({"type": "chat", "user": _fake_user(), "text": ["1", "2", "3", "2", "wow", "lol"].pick_random()})
 
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -956,6 +1121,9 @@ func _unhandled_input(e: InputEvent) -> void:
 		KEY_H: _demo_event("big")
 		KEY_F: _demo_event("follow")
 		KEY_B: _demo_event("quake")
+		KEY_C: _demo_event("chat")
+		KEY_1, KEY_2, KEY_3:
+			_on_event({"type": "chat", "user": _fake_user(), "text": str(e.keycode - KEY_0)})
 		KEY_K:
 			for i in 10:
 				_demo_event("like")
@@ -977,6 +1145,8 @@ func _take_shot() -> void:
 					slot_state[i] = 2
 					placed_count += 1
 					mm.set_instance_transform(i, Transform3D(Basis(), slots[i]))
+			elif k == "vote":
+				_start_vote()
 			else:
 				_demo_event(k)
 	await get_tree().create_timer(delay).timeout
