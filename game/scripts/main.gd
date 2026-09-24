@@ -97,6 +97,7 @@ func _ready() -> void:
 		var w := int(h * 9.0 / 16.0)
 		win.size = Vector2i(w, h)
 		win.position = Vector2i(r.position.x + r.size.x - w, r.position.y)
+		win.borderless = true   # no title bar in the captured picture
 		win.always_on_top = true
 	font = SystemFont.new()
 	font.font_names = PackedStringArray(["Arial Rounded MT Bold", "Segoe UI Black", "Arial Black", "Arial"])
