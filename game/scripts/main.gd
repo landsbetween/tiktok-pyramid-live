@@ -32,7 +32,14 @@ var tag_bg_mat: StandardMaterial3D
 var user_likes := {}
 var top_likers := {}   # uid -> {name, n}  whole stream
 var top_donors := {}   # uid -> {name, n}  coins, whole stream
+var top_builders := {} # uid -> {name, n}  blocks from likes + gifts + follows, whole stream
 var tops_dirty := false
+var viewer_stats := {}   # uid -> {likes, coins} whole stream: drives the level
+const LIKES_PER_LEVEL := 500
+const COINS_PER_LEVEL := 10
+var aura_tex: GradientTexture2D
+var beam_tex: GradientTexture2D
+var fx_mat_cache := {}
 var tops_t := 0.0
 var ttl_t := 0.0
 var likes_per_block := 5
@@ -173,6 +180,85 @@ func _ready() -> void:
 
 
 # ---------- helpers ----------
+func _glowy(tex: Texture2D, c: Color, a: float, cull := BaseMaterial3D.CULL_BACK) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = cull
+	m.no_depth_test = false
+	m.albedo_color = Color(c.r, c.g, c.b, a)
+	if tex:
+		m.albedo_texture = tex
+	return m
+
+
+## soft glowing disc on the ground
+func aura_mat(c: Color, a: float) -> StandardMaterial3D:
+	var key := "a%s%.2f" % [c.to_html(), a]
+	if not fx_mat_cache.has(key):
+		if aura_tex == null:
+			var g := Gradient.new()
+			g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.35), Color(1, 1, 1, 0)])
+			g.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+			aura_tex = GradientTexture2D.new()
+			aura_tex.gradient = g
+			aura_tex.fill = GradientTexture2D.FILL_RADIAL
+			aura_tex.fill_from = Vector2(0.5, 0.5)
+			aura_tex.fill_to = Vector2(1.0, 0.5)
+		fx_mat_cache[key] = _glowy(aura_tex, c, a)
+	return fx_mat_cache[key]
+
+
+## bright ring (HDR colour so the glow post-effect picks it up)
+func glow_mat(c: Color) -> StandardMaterial3D:
+	var key := "g%s" % c.to_html()
+	if not fx_mat_cache.has(key):
+		fx_mat_cache[key] = _glowy(null, c, 0.9)
+	return fx_mat_cache[key]
+
+
+## vertical light pillar for high levels
+func beam_mat(c: Color) -> StandardMaterial3D:
+	var key := "b%s" % c.to_html()
+	if not fx_mat_cache.has(key):
+		if beam_tex == null:
+			var g := Gradient.new()
+			g.colors = PackedColorArray([Color(1, 1, 1, 0), Color(1, 1, 1, 0.55)])
+			beam_tex = GradientTexture2D.new()
+			beam_tex.gradient = g
+			beam_tex.fill_from = Vector2(0.5, 0.0)
+			beam_tex.fill_to = Vector2(0.5, 1.0)
+		fx_mat_cache[key] = _glowy(beam_tex, c, 0.5, BaseMaterial3D.CULL_DISABLED)
+	return fx_mat_cache[key]
+
+
+func level_of(uid: String) -> int:
+	var st: Dictionary = viewer_stats.get(uid, {})
+	return 1 + int(st.get("likes", 0)) / LIKES_PER_LEVEL + int(st.get("coins", 0)) / COINS_PER_LEVEL
+
+
+func _add_stat(u: Dictionary, key: String, n: int) -> void:
+	var uid := str(u.get("id", ""))
+	if uid == "" or uid == "anon" or n <= 0:
+		return
+	if not viewer_stats.has(uid):
+		viewer_stats[uid] = {"likes": 0, "coins": 0}
+	viewer_stats[uid][key] += n
+
+
+func _sync_level(u: Dictionary) -> void:
+	var uid := str(u.get("id", ""))
+	var w = by_user.get(uid)
+	if w == null or not is_instance_valid(w):
+		return
+	var l := level_of(uid)
+	if l != w.level:
+		w.set_level(l, true)
+		if l > 1 and l % 5 == 0:
+			ui.popup("%s  LV %d!" % [str(u.get("name", uid)).substr(0, 12), l], WorkerScript.tier_color(l))
+
+
 func box_mesh(s: Vector3) -> BoxMesh:
 	var key := "%.3f_%.3f_%.3f" % [s.x, s.y, s.z]
 	if not mesh_cache.has(key):
@@ -356,17 +442,21 @@ func _place(i: int) -> void:
 
 ## A viewer's own worker first carries the blocks that viewer earned with likes.
 func take_blocks_for(w) -> int:
+	var cap: int = 0 if w.npc else w.capacity()
 	if w.own > 0 and not celebrating and next_slot < slots.size():
-		var n: int = mini(w.own, 3)
+		var n: int = mini(w.own, maxi(cap, 1))
 		w.own -= n
 		return n
-	return take_blocks()
+	return take_blocks(cap)
 
 
-func take_blocks() -> int:
+## cap 0 = NPC helper (small loads); viewers lift up to their level-based capacity
+func take_blocks(cap := 0) -> int:
 	if celebrating or pending <= 0 or next_slot >= slots.size():
 		return 0
 	var n := clampi(1 + pending / 25, 1, 4)
+	if cap > 0:
+		n = cap
 	n = mini(n, pending)
 	pending -= n
 	return n
@@ -561,6 +651,7 @@ func _ensure_worker(u: Dictionary, kind := "gift", coins := 0):
 			skin = _gift_skin(coins)
 		w = _spawn_worker(uid, str(u.get("name", uid)), true, skin)
 		w.like_only = kind == "like"
+		w.set_level(level_of(uid))
 	else:
 		w.jump()
 		if kind != "like":
@@ -604,10 +695,13 @@ func _evict_one() -> void:
 
 
 func _credit(u: Dictionary, n: int) -> void:
+	_tally(top_builders, u, n)
 	var uid := str(u.get("id", "anon"))
 	if not round_credit.has(uid):
-		round_credit[uid] = {"name": str(u.get("name", uid)), "blocks": 0}
+		round_credit[uid] = {"name": str(u.get("name", uid)), "blocks": 0, "avatar": ""}
 	round_credit[uid].blocks += n
+	if u.get("avatar") != null and str(u.get("avatar")) != "":
+		round_credit[uid].avatar = str(u.get("avatar"))
 
 
 func _tally(board: Dictionary, u: Dictionary, n: int) -> void:
@@ -624,7 +718,11 @@ func _tally(board: Dictionary, u: Dictionary, n: int) -> void:
 
 
 func _sorted_top(board: Dictionary) -> Array:
-	var list := board.values()
+	var list := []
+	for uid in board.keys():
+		var e: Dictionary = board[uid].duplicate()
+		e["level"] = level_of(uid)
+		list.append(e)
 	list.sort_custom(func(a, b): return a.n > b.n)
 	return list.slice(0, 5)
 
@@ -635,8 +733,15 @@ func _on_event(d: Dictionary) -> void:
 	match str(d.get("type", "")):
 		"gift", "quake":
 			_tally(top_donors, u, int(d.get("coins", d.get("blocks", 1))))
+			_add_stat(u, "coins", int(d.get("coins", 1)))
 		"like":
 			_tally(top_likers, u, int(d.get("likes", 1)))
+			_add_stat(u, "likes", int(d.get("likes", 1)))
+	_handle_event(d, u)
+	_sync_level(u)
+
+
+func _handle_event(d: Dictionary, u: Dictionary) -> void:
 	match str(d.get("type", "")):
 		"snapshot":
 			var c = d.get("config", {})
@@ -727,7 +832,7 @@ func _process(delta: float) -> void:
 	if tops_dirty and tops_t > 1.0:
 		tops_t = 0.0
 		tops_dirty = false
-		ui.set_top(ui.top_likes_rows, _sorted_top(top_likers))
+		ui.set_top(ui.top_likes_rows, _sorted_top(top_builders))
 		ui.set_top(ui.top_donors_rows, _sorted_top(top_donors))
 	ttl_t += delta
 	if ttl_t > 0.5:
@@ -782,6 +887,8 @@ func _demo_event(kind: String) -> void:
 
 func _unhandled_input(e: InputEvent) -> void:
 	if not (e is InputEventKey and e.pressed and not e.echo):
+		return
+	if not args.has("debug"):   # test keys would create fake viewers on stream
 		return
 	match e.keycode:
 		KEY_L: _demo_event("like")

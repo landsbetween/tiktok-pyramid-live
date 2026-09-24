@@ -44,8 +44,9 @@ func setup(g) -> void:
 	_build_progress()
 	_build_banner()
 	_build_board()
-	top_likes_rows = _build_top(Vector2(28, 338), "TOP LIKERS", Color(1, 0.55, 0.62))
-	top_donors_rows = _build_top(Vector2(552, 338), "TOP DONORS", GOLD)
+	# TOP LIKERS: bottom-right, just above TikTok's chat/buttons area
+	top_likes_rows = _build_top(Vector2(628, 1640), "TOP BUILDERS", GOLD, true, 440)
+	top_donors_rows = _build_top(Vector2(552, 338), "TOP DONORS", GOLD, false)
 	popup_label = _label("", 110, GOLD, 26)
 	popup_label.position = Vector2(0, 880)
 	popup_label.size = Vector2(1080, 160)
@@ -256,12 +257,12 @@ func _round_mat() -> ShaderMaterial:
 	return _round
 
 
-func _build_top(pos: Vector2, heading: String, color: Color) -> Array:
+func _build_top(pos: Vector2, heading: String, color: Color, show := false, width := 500) -> Array:
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", _flat(Color(0.14, 0.08, 0.02, 0.62), 26, 4, color))
 	p.position = pos
-	p.custom_minimum_size = Vector2(500, 0)
-	p.visible = SHOW_TOPS or game.args.has("tops")
+	p.custom_minimum_size = Vector2(width, 0)
+	p.visible = show or SHOW_TOPS or game.args.has("tops")
 	root.add_child(p)
 	var m := MarginContainer.new()
 	for side in ["left", "right"]:
@@ -289,12 +290,16 @@ func _build_top(pos: Vector2, heading: String, color: Color) -> Array:
 		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		name.clip_text = true
 		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var lvl := _label("", 24, Color.WHITE, 6)
+		lvl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		lvl.custom_minimum_size = Vector2(76, 0)
 		var val := _label("", 29, color, 8)
 		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		val.custom_minimum_size = Vector2(110, 0)
 		h.add_child(name)
+		h.add_child(lvl)
 		h.add_child(val)
-		rows.append([name, val, av])
+		rows.append([name, val, av, lvl])
 	rows[0][0].text = "—"
 	return rows
 
@@ -318,10 +323,14 @@ func set_top(rows: Array, entries: Array) -> void:
 			r[1].text = short_num(int(entries[i].n))
 			r[2].visible = true
 			avatar_into(r[2], str(entries[i].get("avatar", "")))
+			var l := int(entries[i].get("level", 1))
+			r[3].text = "LV%d" % l
+			r[3].add_theme_color_override("font_color", game.WorkerScript.tier_color(l).lightened(0.2))
 		else:
 			r[0].text = "—" if i == 0 and entries.is_empty() else ""
 			r[1].text = ""
 			r[2].visible = false
+			r[3].text = ""
 
 
 func popup(text: String, color := GOLD) -> void:
@@ -368,9 +377,20 @@ func show_board(no: int, top: Array, theme_name: String) -> void:
 	var medals := [Color(1, 0.84, 0.2), Color(0.85, 0.88, 0.95), Color(0.95, 0.6, 0.3)]
 	for i in mini(top.size(), 5):
 		var e: Dictionary = top[i]
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_theme_constant_override("separation", 16)
+		var av := TextureRect.new()
+		av.custom_minimum_size = Vector2(58, 58)
+		av.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		av.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		av.material = _round_mat()
+		avatar_into(av, str(e.get("avatar", "")))
+		row.add_child(av)
 		var l := _label("%d.  %s  —  %d" % [i + 1, str(e.name).substr(0, 16), int(e.blocks)], 44,
 			medals[i] if i < 3 else Color.WHITE, 12)
-		board_list.add_child(l)
+		row.add_child(l)
+		board_list.add_child(row)
 	board_list.add_child(_label("Next: " + theme_name, 34, Color(0.8, 0.95, 1.0), 10))
 	board.visible = true
 	board.scale = Vector2(0.6, 0.6)

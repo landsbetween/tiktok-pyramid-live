@@ -19,6 +19,13 @@ When nobody is giving, one free block appears every 3 seconds.
 Workers wear random skins (worker, Steve, explorer, bedouin, mummy, ninja, spartan, Cleopatra, pharaoh, Anubis); gifts of 10+ coins get a royal skin, 100+ coins the gold pharaoh. Live **TOP LIKERS** and **TOP DONORS** boards (whole stream) sit under the progress bar.
 A finished pyramid gets a golden capstone, confetti and a Top Builders board, then a bigger one starts (7 → 9 → … → 15 wide) in the next look: Sunny Day, Golden Sunset, Starry Night.
 
+## Levels, auras and TOP BUILDERS
+Every viewer has a level for the whole stream: **+1 LVL per 500 likes and per 10 coins**. A worker lifts up to *level + 2*
+blocks at once (max 30), shows `LV<n>` in its name tag and wears an aura that grows and changes colour with the level
+(white → cyan 2+ → green 5+ → purple 10+ with a light pillar → gold 20+ → red 50+).
+**TOP BUILDERS** (bottom-right, whole stream) ranks viewers by blocks from likes, gifts and follows together, with avatar and level.
+Test keys only work with `--debug` (the always-on-top window could otherwise turn typing into fake viewers).
+
 ## Run
 
 ```bat

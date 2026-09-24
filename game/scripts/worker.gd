@@ -42,6 +42,12 @@ var leg_r: Node3D
 var head: Node3D
 var stack: Node3D
 var tag: Node3D
+var tag_lbl: Label3D
+var tag_bg: MeshInstance3D
+var level := 1
+var aura: Node3D
+var aura_ring: MeshInstance3D
+var aura_t := 0.0
 
 
 func setup(g, uid: String, uname: String, skin_name: String) -> void:
@@ -224,31 +230,106 @@ func set_skin(skin_name: String) -> void:
 
 # ---------- Minecraft-style name tag ----------
 func _make_tag(uname: String) -> void:
-	var text := uname.substr(0, 16)
 	tag = Node3D.new()
 	tag.position = Vector3(0, TAG_Y, 0)
 	add_child(tag)
-	var lbl := Label3D.new()
-	lbl.text = text
-	lbl.font = game.tag_font
-	lbl.font_size = 16
-	lbl.pixel_size = 0.026
-	lbl.outline_size = 0
-	lbl.modulate = Color(1, 1, 1)
-	lbl.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.no_depth_test = true
-	lbl.render_priority = 11
-	lbl.shaded = false
-	tag.add_child(lbl)
+	tag_lbl = Label3D.new()
+	tag_lbl.font = game.tag_font
+	tag_lbl.font_size = 16
+	tag_lbl.pixel_size = 0.026
+	tag_lbl.outline_size = 0
+	tag_lbl.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	tag_lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	tag_lbl.no_depth_test = true
+	tag_lbl.render_priority = 11
+	tag_lbl.shaded = false
+	tag.add_child(tag_lbl)
+	tag_bg = MeshInstance3D.new()
+	tag_bg.mesh = QuadMesh.new()
+	tag_bg.material_override = game.tag_bg_mat
+	tag_bg.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	tag.add_child(tag_bg)
+	_refresh_tag()
+
+
+func _refresh_tag() -> void:
+	if tag_lbl == null:
+		return
+	var text := "LV%d %s" % [level, display_name.substr(0, 14)]
+	tag_lbl.text = text
+	tag_lbl.modulate = Color(1, 1, 1) if level < 2 else tier_color(level).lightened(0.35)
 	var sz: Vector2 = game.tag_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
-	var q := MeshInstance3D.new()
-	var qm := QuadMesh.new()
-	qm.size = Vector2(sz.x * 0.026 + 0.16, 16 * 0.026 + 0.08)
-	q.mesh = qm
-	q.material_override = game.tag_bg_mat
-	q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	tag.add_child(q)
+	(tag_bg.mesh as QuadMesh).size = Vector2(sz.x * 0.026 + 0.16, 16 * 0.026 + 0.08)
+
+
+# ---------- levels and aura ----------
+static func tier_color(l: int) -> Color:
+	if l >= 50: return Color(1.0, 0.25, 0.2)
+	if l >= 20: return Color(1.0, 0.8, 0.2)
+	if l >= 10: return Color(0.75, 0.35, 1.0)
+	if l >= 5: return Color(0.35, 1.0, 0.45)
+	if l >= 2: return Color(0.3, 0.85, 1.0)
+	return Color(0.9, 0.95, 1.0)
+
+
+## Max blocks this worker lifts at once: grows with the viewer's level.
+func capacity() -> int:
+	return mini(level + 2, 30)
+
+
+func set_level(l: int, celebrate := false) -> void:
+	l = maxi(1, l)
+	var up := l > level
+	level = l
+	_refresh_tag()
+	_build_aura()
+	if celebrate and up:
+		jump()
+		game.fx.dust(global_position + Vector3(0, 0.3, 0))
+
+
+func _build_aura() -> void:
+	if npc:
+		return
+	if aura:
+		aura.queue_free()
+	aura = Node3D.new()
+	aura.position = Vector3(0, 0.04, 0)
+	add_child(aura)
+	var c := tier_color(level)
+	var k := clampf(0.55 + level * 0.03, 0.55, 1.4)
+	var disc := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(1.5, 1.5) * k
+	q.orientation = PlaneMesh.FACE_Y
+	disc.mesh = q
+	disc.material_override = game.aura_mat(c, 0.55 + minf(level, 20) * 0.02)
+	disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	aura.add_child(disc)
+	aura_ring = MeshInstance3D.new()
+	var t := TorusMesh.new()
+	t.inner_radius = 0.5 * k
+	t.outer_radius = 0.56 * k
+	t.rings = 32
+	t.ring_segments = 6
+	aura_ring.mesh = t
+	aura_ring.material_override = game.glow_mat(c * 1.8)
+	aura_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	aura_ring.scale = Vector3(1, 0.3, 1)
+	aura.add_child(aura_ring)
+	if level >= 10:
+		var beam := MeshInstance3D.new()
+		var cy := CylinderMesh.new()
+		cy.top_radius = 0.42 * k
+		cy.bottom_radius = 0.5 * k
+		cy.height = 2.6
+		cy.cap_top = false
+		cy.cap_bottom = false
+		beam.mesh = cy
+		beam.position.y = 1.3
+		beam.material_override = game.beam_mat(c)
+		beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		aura.add_child(beam)
 
 
 # ---------- helpers ----------
@@ -273,15 +354,22 @@ func set_carry(n: int) -> void:
 	carry = n
 	for c in stack.get_children():
 		c.queue_free()
+	var wide := n > 6
+	var sc := CARRY_SCALE * (0.62 if wide else 1.0)
+	var per := 4 if wide else 1
 	for i in n:
 		var b := MeshInstance3D.new()
 		b.mesh = game.block_mesh
 		b.material_override = game.carry_mat
-		b.scale = Vector3.ONE * CARRY_SCALE
-		b.position = Vector3(0, CARRY_SCALE * (0.5 + i), 0)
+		b.scale = Vector3.ONE * sc
+		var layer := i / per
+		var off := Vector3.ZERO
+		if wide:
+			off = Vector3(((i % 2) - 0.5) * sc, 0, (((i / 2) % 2) - 0.5) * sc)
+		b.position = Vector3(0, sc * (0.5 + layer), 0) + off
 		stack.add_child(b)
 	if tag:
-		tag.position.y = TAG_Y + n * CARRY_SCALE
+		tag.position.y = TAG_Y + ceili(float(n) / per) * sc
 
 
 func jump() -> void:
@@ -306,6 +394,11 @@ func vanish() -> void:
 func _process(delta: float) -> void:
 	if state == GONE:
 		return
+	if aura:
+		aura_t += delta
+		aura.rotation.y += delta * 1.2
+		var pulse := 1.0 + sin(aura_t * 3.0) * 0.06
+		aura.scale = Vector3(pulse, 1, pulse)
 	anim_t += delta
 	timer -= delta
 	match state:
