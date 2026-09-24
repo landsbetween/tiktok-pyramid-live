@@ -24,6 +24,8 @@ var board: PanelContainer
 var board_title: Label
 var board_list: VBoxContainer
 var fps_label: Label
+var top_likes_rows: Array = []
+var top_donors_rows: Array = []
 var avatar_cache := {}
 var placeholder: Texture2D
 var bar_w := 780.0
@@ -40,8 +42,10 @@ func setup(g) -> void:
 	_build_progress()
 	_build_banner()
 	_build_board()
+	top_likes_rows = _build_top(Vector2(28, 404), "TOP LIKERS", Color(1, 0.55, 0.62))
+	top_donors_rows = _build_top(Vector2(552, 404), "TOP DONORS", GOLD)
 	popup_label = _label("", 110, GOLD, 26)
-	popup_label.position = Vector2(0, 560)
+	popup_label.position = Vector2(0, 880)
 	popup_label.size = Vector2(1080, 160)
 	popup_label.pivot_offset = Vector2(540, 80)
 	popup_label.modulate.a = 0.0
@@ -86,27 +90,24 @@ func _flat(bg: Color, radius: int, border := 0, border_color := Color.WHITE) -> 
 
 
 func _build_progress() -> void:
-	title = _label("PYRAMID #1", 66, Color.WHITE, 18)
-	title.position = Vector2(0, 70)
-	title.size = Vector2(1080, 80)
-	root.add_child(title)
+	title = _label("", 66, Color.WHITE, 18)   # kept for set_progress(), not shown
 	var bg := Panel.new()
 	bg.add_theme_stylebox_override("panel", _flat(Color(0.15, 0.08, 0.02, 0.6), 26, 5, Color(1, 0.95, 0.8)))
-	bg.position = Vector2(150, 158)
+	bg.position = Vector2(150, 262)
 	bg.size = Vector2(780, 52)
 	root.add_child(bg)
 	bar_fill = Panel.new()
 	bar_fill.add_theme_stylebox_override("panel", _flat(GOLD, 20))
-	bar_fill.position = Vector2(156, 164)
+	bar_fill.position = Vector2(156, 268)
 	bar_fill.size = Vector2(0, 40)
 	root.add_child(bar_fill)
 	bar_w = 768.0
 	count_label = _label("0 / 0", 34, Color.WHITE, 10)
-	count_label.position = Vector2(150, 158)
+	count_label.position = Vector2(150, 262)
 	count_label.size = Vector2(780, 52)
 	root.add_child(count_label)
 	rules = _label("", 29, Color(1, 0.97, 0.88), 10)
-	rules.position = Vector2(0, 218)
+	rules.position = Vector2(0, 318)
 	rules.size = Vector2(1080, 80)
 	root.add_child(rules)
 
@@ -126,7 +127,7 @@ func set_progress(no: int, done: int, total: int) -> void:
 func _build_banner() -> void:
 	banner = PanelContainer.new()
 	banner.add_theme_stylebox_override("panel", _flat(Color(0.14, 0.08, 0.02, 0.86), 36, 6, GOLD))
-	banner.position = Vector2(90, 318)
+	banner.position = Vector2(90, 720)
 	banner.custom_minimum_size = Vector2(900, 150)
 	banner.size = Vector2(900, 150)
 	banner.pivot_offset = Vector2(450, 75)
@@ -231,6 +232,63 @@ func _on_avatar(_result: int, code: int, _headers: PackedStringArray, body: Pack
 	avatar_cache[url] = tex
 	if banner_url == url:
 		banner_avatar.texture = tex
+
+
+# ---------- live leaderboards (whole stream) ----------
+func _build_top(pos: Vector2, heading: String, color: Color) -> Array:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", _flat(Color(0.14, 0.08, 0.02, 0.62), 26, 4, color))
+	p.position = pos
+	p.custom_minimum_size = Vector2(500, 0)
+	root.add_child(p)
+	var m := MarginContainer.new()
+	for side in ["left", "right"]:
+		m.add_theme_constant_override("margin_" + side, 20)
+	for side in ["top", "bottom"]:
+		m.add_theme_constant_override("margin_" + side, 10)
+	p.add_child(m)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	m.add_child(v)
+	v.add_child(_label(heading, 34, color, 10))
+	var rows := []
+	for i in 5:
+		var h := HBoxContainer.new()
+		v.add_child(h)
+		var name := _label("", 29, Color.WHITE, 8)
+		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name.clip_text = true
+		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var val := _label("", 29, color, 8)
+		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		val.custom_minimum_size = Vector2(110, 0)
+		h.add_child(name)
+		h.add_child(val)
+		rows.append([name, val])
+	rows[0][0].text = "—"
+	return rows
+
+
+static func short_num(n: int) -> String:
+	if n >= 1000000:
+		return "%.1fM" % (n / 1000000.0)
+	if n >= 1000:
+		return "%.1fK" % (n / 1000.0)
+	return str(n)
+
+
+## entries: [{name, n}] sorted high to low
+func set_top(rows: Array, entries: Array) -> void:
+	var medals := [GOLD, Color(0.85, 0.88, 0.95), Color(0.95, 0.6, 0.3)]
+	for i in rows.size():
+		var r: Array = rows[i]
+		if i < entries.size():
+			r[0].text = "%d. %s" % [i + 1, str(entries[i].name).substr(0, 14)]
+			r[0].add_theme_color_override("font_color", medals[i] if i < 3 else Color.WHITE)
+			r[1].text = short_num(int(entries[i].n))
+		else:
+			r[0].text = "—" if i == 0 and entries.is_empty() else ""
+			r[1].text = ""
 
 
 func popup(text: String, color := GOLD) -> void:

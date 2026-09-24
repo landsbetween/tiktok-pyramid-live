@@ -10,6 +10,7 @@ const MAX_SIZE := 15
 const IDLE_BLOCK_EVERY := 3.0      # free block when nobody is donating
 const NPC_WORKERS := 4
 const MAX_WORKERS := 40
+const LIKE_WORKER_TTL := 15.0       # a likes-only worker leaves after this long without likes
 const RAIN_THRESHOLD := 40         # big backlog: blocks also drop from the sky
 const QUARRY := Vector3(7.9, 0, 17.8)
 const CAM_LOOK := Vector3(4.53, 0, 4.53)
@@ -26,6 +27,14 @@ var args := {}
 var quarry_pos := QUARRY
 var cam_look := CAM_LOOK
 var font: SystemFont
+var tag_font: SystemFont
+var tag_bg_mat: StandardMaterial3D
+var user_likes := {}
+var top_likers := {}   # uid -> {name, n}  whole stream
+var top_donors := {}   # uid -> {name, n}  coins, whole stream
+var tops_dirty := false
+var tops_t := 0.0
+var ttl_t := 0.0
 var likes_per_block := 5
 var pyramid_no := 1
 var pyr_size := FIRST_SIZE
@@ -80,6 +89,20 @@ func _ready() -> void:
 	font = SystemFont.new()
 	font.font_names = PackedStringArray(["Arial Rounded MT Bold", "Segoe UI Black", "Arial Black", "Arial"])
 	font.font_weight = 800
+	# Minecraft-like name tags: tiny un-antialiased mono font scaled up with nearest filtering
+	tag_font = SystemFont.new()
+	tag_font.font_names = PackedStringArray(["Menlo", "Consolas", "Courier New", "monospace"])
+	tag_font.font_weight = 700
+	tag_font.antialiasing = TextServer.FONT_ANTIALIASING_NONE
+	tag_font.hinting = TextServer.HINTING_NONE
+	tag_font.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	tag_bg_mat = StandardMaterial3D.new()
+	tag_bg_mat.albedo_color = Color(0, 0, 0, 0.42)
+	tag_bg_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	tag_bg_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	tag_bg_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	tag_bg_mat.no_depth_test = true
+	tag_bg_mat.render_priority = 10
 	if args.has("size"):
 		pyr_size = clampi(int(args.size), 3, MAX_SIZE)
 	_setup_render()
@@ -125,6 +148,15 @@ func _ready() -> void:
 		_spawn_worker("", "", false)
 	if args.has("shot"):
 		_take_shot()
+	if args.has("skins"):   # debug: line up every skin in front of the camera
+		var all := ["worker", "steve", "explorer", "bedouin", "mummy", "ninja", "spartan", "cleopatra", "pharaoh", "anubis", "gold_pharaoh"]
+		for i in all.size():
+			var w = _spawn_worker("skin%d" % i, all[i], false, all[i])
+			w.position = quarry_pos + Vector3(-5.0 + i * 1.0, 0, 3.0)
+			w.rotation.y = PI * 0.25
+			w.process_mode = Node.PROCESS_MODE_DISABLED
+		cam.size = 9.0
+		_set_cam_look(quarry_pos + Vector3(0, 0, 3.0))
 
 
 # ---------- helpers ----------
@@ -309,6 +341,15 @@ func _place(i: int) -> void:
 		_complete()
 
 
+## A viewer's own worker first carries the blocks that viewer earned with likes.
+func take_blocks_for(w) -> int:
+	if w.own > 0 and not celebrating and next_slot < slots.size():
+		var n: int = mini(w.own, 3)
+		w.own -= n
+		return n
+	return take_blocks()
+
+
 func take_blocks() -> int:
 	if celebrating or pending <= 0 or next_slot >= slots.size():
 		return 0
@@ -473,12 +514,12 @@ func _advance() -> void:
 
 
 # ---------- workers ----------
-func _spawn_worker(uid: String, uname: String, walk_in: bool):
+func _spawn_worker(uid: String, uname: String, walk_in: bool, skin := ""):
 	var w = WorkerScript.new()
 	add_child(w)
-	var shirt := Color.from_hsv(randf(), randf_range(0.55, 0.8), randf_range(0.8, 0.95))
-	var pants: Color = [Color(0.2, 0.35, 0.8), Color(0.16, 0.16, 0.22), Color(0.4, 0.28, 0.16), Color(0.2, 0.5, 0.3)].pick_random()
-	w.setup(self, uid, uname, shirt, pants)
+	if skin == "":
+		skin = "worker" if uid == "" else WorkerScript.COMMON.pick_random()
+	w.setup(self, uid, uname, skin)
 	if walk_in:
 		w.position = quarry_pos + Vector3(6.0, 0, 3.0)
 		w.target = quarry_point()
@@ -492,22 +533,61 @@ func _spawn_worker(uid: String, uname: String, walk_in: bool):
 	return w
 
 
-func _ensure_worker(u: Dictionary) -> void:
+## kind: "like" (temporary worker), "gift" or "follow" (stays). coins picks a fancier skin for bigger gifts.
+func _ensure_worker(u: Dictionary, kind := "gift", coins := 0):
 	var uid := str(u.get("id", ""))
 	if uid == "" or uid == "anon":
-		return
-	if by_user.has(uid) and is_instance_valid(by_user[uid]):
-		by_user[uid].jump()
-		return
-	if workers.size() >= MAX_WORKERS:
+		return null
+	var now := Time.get_ticks_msec() / 1000.0
+	var w = by_user.get(uid)
+	if w == null or not is_instance_valid(w) or w.state == WorkerScript.GONE:
+		if workers.size() >= MAX_WORKERS:
+			_evict_one()
+		var skin := ""
+		if kind != "like":
+			skin = _gift_skin(coins)
+		w = _spawn_worker(uid, str(u.get("name", uid)), true, skin)
+		w.like_only = kind == "like"
+	else:
+		w.jump()
+		if kind != "like":
+			w.like_only = false
+			var better := _gift_skin(coins)
+			if better != "" and not WorkerScript.ROYAL.has(w.skin) and w.skin != "gold_pharaoh":
+				w.set_skin(better)
+			elif coins >= 100 and w.skin != "gold_pharaoh":
+				w.set_skin("gold_pharaoh")
+	w.last_seen = now
+	return w
+
+
+func _gift_skin(coins: int) -> String:
+	if coins >= 100:
+		return "gold_pharaoh"
+	if coins >= 10:
+		return ["pharaoh", "anubis", "cleopatra"].pick_random()
+	return WorkerScript.ROYAL.pick_random() if randf() < 0.5 else WorkerScript.COMMON.pick_random()
+
+
+func _remove_worker(w) -> void:
+	workers.erase(w)
+	if by_user.get(w.user_id) == w:
+		by_user.erase(w.user_id)
+	w.vanish()
+
+
+func _evict_one() -> void:
+	var victim = null
+	for w in workers:   # oldest idle likes-only worker first, then any named worker
+		if not w.npc and w.like_only and (victim == null or w.last_seen < victim.last_seen):
+			victim = w
+	if victim == null:
 		for w in workers:
 			if not w.npc:
-				pending += w.carry
-				by_user.erase(w.user_id)
-				workers.erase(w)
-				w.queue_free()
+				victim = w
 				break
-	_spawn_worker(uid, str(u.get("name", uid)), true)
+	if victim != null:
+		_remove_worker(victim)
 
 
 func _credit(u: Dictionary, n: int) -> void:
@@ -517,9 +597,31 @@ func _credit(u: Dictionary, n: int) -> void:
 	round_credit[uid].blocks += n
 
 
+func _tally(board: Dictionary, u: Dictionary, n: int) -> void:
+	var uid := str(u.get("id", ""))
+	if uid == "" or uid == "anon" or n <= 0:
+		return
+	if not board.has(uid):
+		board[uid] = {"name": str(u.get("name", uid)), "n": 0}
+	board[uid].n += n
+	board[uid].name = str(u.get("name", board[uid].name))
+	tops_dirty = true
+
+
+func _sorted_top(board: Dictionary) -> Array:
+	var list := board.values()
+	list.sort_custom(func(a, b): return a.n > b.n)
+	return list.slice(0, 5)
+
+
 # ---------- events ----------
 func _on_event(d: Dictionary) -> void:
 	var u: Dictionary = d.get("user", {}) if d.get("user") is Dictionary else {}
+	match str(d.get("type", "")):
+		"gift", "quake":
+			_tally(top_donors, u, int(d.get("coins", d.get("blocks", 1))))
+		"like":
+			_tally(top_likers, u, int(d.get("likes", 1)))
 	match str(d.get("type", "")):
 		"snapshot":
 			var c = d.get("config", {})
@@ -530,7 +632,7 @@ func _on_event(d: Dictionary) -> void:
 			var n := int(d.get("blocks", 1))
 			pending += n
 			_credit(u, n)
-			_ensure_worker(u)
+			_ensure_worker(u, "gift", n)
 			var cnt := int(d.get("count", 1))
 			var gname := str(d.get("giftName", "Gift"))
 			ui.show_banner(u, "%s%s  +%d BLOCKS" % [gname, (" x%d" % cnt) if cnt > 1 else "", n])
@@ -539,7 +641,7 @@ func _on_event(d: Dictionary) -> void:
 				ui.popup("+%d BLOCKS!" % n)
 		"quake":
 			var power := int(d.get("power", 1))
-			_ensure_worker(u)
+			_ensure_worker(u, "gift", power)
 			ui.show_banner(u, "%s  EARTHQUAKE!" % str(d.get("giftName", "GG")), Color(1, 0.45, 0.3))
 			ui.popup("EARTHQUAKE!", Color(1, 0.45, 0.3))
 			fx.gift_sound()
@@ -548,16 +650,30 @@ func _on_event(d: Dictionary) -> void:
 			var n := int(d.get("blocks", 5))
 			pending += n
 			_credit(u, n)
-			_ensure_worker(u)
+			_ensure_worker(u, "follow", 10)
 			ui.show_banner(u, "JOINED THE CREW!  +%d" % n, Color(0.45, 0.9, 1.0))
 			fx.follow_sound()
 		"like":
-			like_acc += int(d.get("likes", 1))
-			var got := like_acc / likes_per_block
+			# every viewer has their own like counter: each 5 likes spawn their worker and give it 1 block to place
+			var uid := str(u.get("id", ""))
+			var likes := int(d.get("likes", 1))
+			if uid == "" or uid == "anon":
+				like_acc += likes
+				var g := like_acc / likes_per_block
+				if g > 0:
+					like_acc -= g * likes_per_block
+					pending += g
+				return
+			var acc: int = int(user_likes.get(uid, 0)) + likes
+			var got := acc / likes_per_block
+			user_likes[uid] = acc - got * likes_per_block
+			var w = by_user.get(uid)
 			if got > 0:
-				like_acc -= got * likes_per_block
-				pending += got
+				w = _ensure_worker(u, "like")
+				w.own += got
 				_credit(u, got)
+			elif w != null and is_instance_valid(w):
+				w.last_seen = Time.get_ticks_msec() / 1000.0
 
 
 # ---------- loop ----------
@@ -590,6 +706,24 @@ func _process(delta: float) -> void:
 		shake = maxf(0.0, shake - delta * 1.2)
 		cam.h_offset = randf_range(-1, 1) * shake * 0.7
 		cam.v_offset = randf_range(-1, 1) * shake * 0.7
+	tops_t += delta
+	if tops_dirty and tops_t > 1.0:
+		tops_t = 0.0
+		tops_dirty = false
+		ui.set_top(ui.top_likes_rows, _sorted_top(top_likers))
+		ui.set_top(ui.top_donors_rows, _sorted_top(top_donors))
+	ttl_t += delta
+	if ttl_t > 0.5:
+		ttl_t = 0.0
+		var now := Time.get_ticks_msec() / 1000.0
+		for w in workers.duplicate():
+			if w.npc or not w.like_only:
+				continue
+			var idle: float = now - w.last_seen
+			# leave after 15 s without likes once the hands are empty (hard limit 25 s)
+			if idle > LIKE_WORKER_TTL and ((w.carry == 0 and w.own == 0) or idle > LIKE_WORKER_TTL + 10.0):
+				user_likes.erase(w.user_id)
+				_remove_worker(w)
 	perf_t += delta
 	if perf_t > 2.0:
 		perf_t = 0.0
