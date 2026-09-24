@@ -36,6 +36,7 @@ var tops_dirty := false
 var tops_t := 0.0
 var ttl_t := 0.0
 var likes_per_block := 5
+var blocks_per_coin := 10
 var pyramid_no := 1
 var pyr_size := FIRST_SIZE
 var theme_i := 0
@@ -116,7 +117,7 @@ func _ready() -> void:
 	ui = UiScript.new()
 	add_child(ui)
 	ui.setup(self)
-	ui.set_rules(likes_per_block)
+	ui.set_rules(likes_per_block, blocks_per_coin)
 	net = NetScript.new()
 	net.url = str(args.get("server", SERVER_URL))
 	add_child(net)
@@ -629,12 +630,14 @@ func _on_event(d: Dictionary) -> void:
 			var c = d.get("config", {})
 			if c is Dictionary and c.has("likesPerBlock"):
 				likes_per_block = maxi(1, int(c.likesPerBlock))
-				ui.set_rules(likes_per_block)
+			if c is Dictionary and c.has("blocksPerDiamond"):
+				blocks_per_coin = maxi(1, int(c.blocksPerDiamond))
+			ui.set_rules(likes_per_block, blocks_per_coin)
 		"gift":
 			var n := int(d.get("blocks", 1))
 			pending += n
 			_credit(u, n)
-			_ensure_worker(u, "gift", n)
+			_ensure_worker(u, "gift", int(d.get("coins", n)))
 			var cnt := int(d.get("count", 1))
 			var gname := str(d.get("giftName", "Gift"))
 			ui.show_banner(u, "%s%s  +%d BLOCKS" % [gname, (" x%d" % cnt) if cnt > 1 else "", n])

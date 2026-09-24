@@ -4,6 +4,8 @@ extends CanvasLayer
 
 const BROWN := Color(0.22, 0.11, 0.02)
 const GOLD := Color(1.0, 0.8, 0.22)
+## TOP LIKERS / TOP DONORS boards: hidden for now (show with the --tops launch option)
+const SHOW_TOPS := false
 
 var game
 var font: Font
@@ -112,8 +114,8 @@ func _build_progress() -> void:
 	root.add_child(rules)
 
 
-func set_rules(likes_per_block: int) -> void:
-	rules.text = "%d LIKES = 1 BLOCK  •  1 COIN = 1 BLOCK\nFOLLOW = YOUR OWN WORKER  •  GG = EARTHQUAKE" % likes_per_block
+func set_rules(likes_per_block: int, blocks_per_coin := 10) -> void:
+	rules.text = "%d LIKES = 1 BLOCK  •  1 COIN = %d BLOCKS\nFOLLOW = YOUR OWN WORKER  •  GG = EARTHQUAKE" % [likes_per_block, blocks_per_coin]
 
 
 func set_progress(no: int, done: int, total: int) -> void:
@@ -259,6 +261,7 @@ func _build_top(pos: Vector2, heading: String, color: Color) -> Array:
 	p.add_theme_stylebox_override("panel", _flat(Color(0.14, 0.08, 0.02, 0.62), 26, 4, color))
 	p.position = pos
 	p.custom_minimum_size = Vector2(500, 0)
+	p.visible = SHOW_TOPS or game.args.has("tops")
 	root.add_child(p)
 	var m := MarginContainer.new()
 	for side in ["left", "right"]:

@@ -9,7 +9,7 @@ const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT || 3001);
 const USERNAME = (process.argv[2] || process.env.TIKTOK_USER || '').replace(/^@/, '');
-const BLOCKS_PER_DIAMOND = Number(process.env.BLOCKS_PER_DIAMOND || 1); // 1 💎 = 1 block
+const BLOCKS_PER_DIAMOND = Number(process.env.BLOCKS_PER_DIAMOND || 10); // 1 💎 = 10 blocks
 const BLOCKS_PER_FOLLOW = Number(process.env.BLOCKS_PER_FOLLOW || 5);
 const LIKES_PER_BLOCK = Number(process.env.LIKES_PER_BLOCK || 5);
 // Gifts that shake the pyramid and knock off the top blocks instead of adding blocks.

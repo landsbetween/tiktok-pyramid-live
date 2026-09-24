@@ -10,7 +10,7 @@ Cartoon, Roblox-like look, vertical 1080×1920, runs as a native window (no brow
 | Viewer action | In the game |
 |---|---|
 | Likes | every 5 likes from a viewer spawn **their own worker** (with a Minecraft-style name tag) who places 1 block; no likes for 15 s and the worker vanishes in a puff |
-| Gift | 1 coin = 1 block, a banner with the avatar, a random meme sound |
+| Gift | 1 coin = 10 blocks, a banner with the avatar, a random meme sound |
 | Follow | +5 blocks and your own worker that stays for the whole stream |
 | GG, Fireworks, Boxing Gloves, Rocket | earthquake: the top blocks fly off |
 
@@ -31,7 +31,7 @@ It asks for the TikTok username once (stored in `%USERPROFILE%\.tiktok-pyramid-u
 - `game/` — Godot 4.7 project. Everything (scene, workers, props, UI) is built in code under `game/scripts/`.
 
 Game options (after `--` on the Godot command line, or passed to `start.bat`):
-`--window=608x1080`, `--borderless`, `--debug` (FPS line), `--demo` (random events), `--size=15` (start pyramid size), `--skins` (debug: line up every skin in front of the camera).
+`--window=608x1080`, `--borderless`, `--debug` (FPS line), `--demo` (random events), `--size=15` (start pyramid size), `--skins` (debug: line up every skin in front of the camera), `--tops` (show the TOP LIKERS / TOP DONORS boards, hidden by default).
 
 Keys: L like, K like storm, G gift, H big gift, F follow, B earthquake, E finish pyramid, D toggle FPS.
 
