@@ -16,7 +16,9 @@ set /p U=<"%CFG%"
 
 rem find Godot 4 (winget install location, or GODOT env var)
 if not defined GODOT (
-  for /f "delims=" %%g in ('dir /b /s "%LOCALAPPDATA%\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_*\Godot_v4*_win64.exe" 2^>nul ^| findstr /v console') do set "GODOT=%%g"
+  for /d %%d in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_*") do (
+    for %%g in ("%%d\Godot_v4*_win64.exe") do set "GODOT=%%~fg"
+  )
 )
 if not defined GODOT (echo Godot 4 not found. Run: winget install GodotEngine.GodotEngine & pause & exit /b 1)
 
