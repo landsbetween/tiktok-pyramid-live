@@ -602,9 +602,11 @@ func _tally(board: Dictionary, u: Dictionary, n: int) -> void:
 	if uid == "" or uid == "anon" or n <= 0:
 		return
 	if not board.has(uid):
-		board[uid] = {"name": str(u.get("name", uid)), "n": 0}
+		board[uid] = {"name": str(u.get("name", uid)), "n": 0, "avatar": ""}
 	board[uid].n += n
 	board[uid].name = str(u.get("name", board[uid].name))
+	if u.get("avatar") != null and str(u.get("avatar")) != "":
+		board[uid].avatar = str(u.get("avatar"))
 	tops_dirty = true
 
 

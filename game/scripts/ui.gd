@@ -42,8 +42,8 @@ func setup(g) -> void:
 	_build_progress()
 	_build_banner()
 	_build_board()
-	top_likes_rows = _build_top(Vector2(28, 404), "TOP LIKERS", Color(1, 0.55, 0.62))
-	top_donors_rows = _build_top(Vector2(552, 404), "TOP DONORS", GOLD)
+	top_likes_rows = _build_top(Vector2(28, 338), "TOP LIKERS", Color(1, 0.55, 0.62))
+	top_donors_rows = _build_top(Vector2(552, 338), "TOP DONORS", GOLD)
 	popup_label = _label("", 110, GOLD, 26)
 	popup_label.position = Vector2(0, 880)
 	popup_label.size = Vector2(1080, 160)
@@ -93,21 +93,21 @@ func _build_progress() -> void:
 	title = _label("", 66, Color.WHITE, 18)   # kept for set_progress(), not shown
 	var bg := Panel.new()
 	bg.add_theme_stylebox_override("panel", _flat(Color(0.15, 0.08, 0.02, 0.6), 26, 5, Color(1, 0.95, 0.8)))
-	bg.position = Vector2(150, 262)
+	bg.position = Vector2(150, 196)
 	bg.size = Vector2(780, 52)
 	root.add_child(bg)
 	bar_fill = Panel.new()
 	bar_fill.add_theme_stylebox_override("panel", _flat(GOLD, 20))
-	bar_fill.position = Vector2(156, 268)
+	bar_fill.position = Vector2(156, 202)
 	bar_fill.size = Vector2(0, 40)
 	root.add_child(bar_fill)
 	bar_w = 768.0
 	count_label = _label("0 / 0", 34, Color.WHITE, 10)
-	count_label.position = Vector2(150, 262)
+	count_label.position = Vector2(150, 196)
 	count_label.size = Vector2(780, 52)
 	root.add_child(count_label)
 	rules = _label("", 29, Color(1, 0.97, 0.88), 10)
-	rules.position = Vector2(0, 318)
+	rules.position = Vector2(0, 252)
 	rules.size = Vector2(1080, 80)
 	root.add_child(rules)
 
@@ -144,11 +144,7 @@ func _build_banner() -> void:
 	banner_avatar.custom_minimum_size = Vector2(118, 118)
 	banner_avatar.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	banner_avatar.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	var sh := Shader.new()
-	sh.code = "shader_type canvas_item;\nvoid fragment() {\n\tvec4 c = texture(TEXTURE, UV);\n\tfloat d = length(UV - vec2(0.5));\n\tc.a *= 1.0 - smoothstep(0.47, 0.5, d);\n\tCOLOR = c;\n}\n"
-	var sm := ShaderMaterial.new()
-	sm.shader = sh
-	banner_avatar.material = sm
+	banner_avatar.material = _round_mat()
 	h.add_child(banner_avatar)
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -199,23 +195,35 @@ func _next_banner() -> void:
 
 
 func _load_avatar(url: String) -> void:
-	banner_url = url
-	if url == "":
-		banner_avatar.texture = placeholder
+	avatar_into(banner_avatar, url)
+
+
+var _waiting := {}   # url -> [TextureRect] waiting for the download
+func avatar_into(rect: TextureRect, url: String) -> void:
+	rect.set_meta("url", url)
+	if url == "" or url == "<null>":
+		rect.texture = placeholder
 		return
 	if avatar_cache.has(url):
-		banner_avatar.texture = avatar_cache[url]
+		rect.texture = avatar_cache[url]
 		return
-	banner_avatar.texture = placeholder
+	rect.texture = placeholder
+	if _waiting.has(url):
+		_waiting[url].append(rect)
+		return
+	_waiting[url] = [rect]
 	var req := HTTPRequest.new()
 	add_child(req)
 	req.request_completed.connect(_on_avatar.bind(url, req))
 	if req.request(url) != OK:
+		_waiting.erase(url)
 		req.queue_free()
 
 
 func _on_avatar(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray, url: String, req: HTTPRequest) -> void:
 	req.queue_free()
+	var rects: Array = _waiting.get(url, [])
+	_waiting.erase(url)
 	if code != 200 or body.size() < 16:
 		return
 	var img := Image.new()
@@ -230,11 +238,22 @@ func _on_avatar(_result: int, code: int, _headers: PackedStringArray, body: Pack
 		return
 	var tex := ImageTexture.create_from_image(img)
 	avatar_cache[url] = tex
-	if banner_url == url:
-		banner_avatar.texture = tex
+	for r in rects:
+		if is_instance_valid(r) and str(r.get_meta("url", "")) == url:
+			r.texture = tex
 
 
 # ---------- live leaderboards (whole stream) ----------
+var _round: ShaderMaterial
+func _round_mat() -> ShaderMaterial:
+	if _round == null:
+		var sh := Shader.new()
+		sh.code = "shader_type canvas_item;\nvoid fragment() {\n\tvec4 c = texture(TEXTURE, UV);\n\tfloat d = length(UV - vec2(0.5));\n\tc.a *= 1.0 - smoothstep(0.46, 0.5, d);\n\tCOLOR = c;\n}\n"
+		_round = ShaderMaterial.new()
+		_round.shader = sh
+	return _round
+
+
 func _build_top(pos: Vector2, heading: String, color: Color) -> Array:
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", _flat(Color(0.14, 0.08, 0.02, 0.62), 26, 4, color))
@@ -254,7 +273,15 @@ func _build_top(pos: Vector2, heading: String, color: Color) -> Array:
 	var rows := []
 	for i in 5:
 		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 10)
 		v.add_child(h)
+		var av := TextureRect.new()
+		av.custom_minimum_size = Vector2(40, 40)
+		av.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		av.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		av.material = _round_mat()
+		av.visible = false
+		h.add_child(av)
 		var name := _label("", 29, Color.WHITE, 8)
 		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		name.clip_text = true
@@ -264,7 +291,7 @@ func _build_top(pos: Vector2, heading: String, color: Color) -> Array:
 		val.custom_minimum_size = Vector2(110, 0)
 		h.add_child(name)
 		h.add_child(val)
-		rows.append([name, val])
+		rows.append([name, val, av])
 	rows[0][0].text = "—"
 	return rows
 
@@ -286,9 +313,12 @@ func set_top(rows: Array, entries: Array) -> void:
 			r[0].text = "%d. %s" % [i + 1, str(entries[i].name).substr(0, 14)]
 			r[0].add_theme_color_override("font_color", medals[i] if i < 3 else Color.WHITE)
 			r[1].text = short_num(int(entries[i].n))
+			r[2].visible = true
+			avatar_into(r[2], str(entries[i].get("avatar", "")))
 		else:
 			r[0].text = "—" if i == 0 and entries.is_empty() else ""
 			r[1].text = ""
+			r[2].visible = false
 
 
 func popup(text: String, color := GOLD) -> void:
