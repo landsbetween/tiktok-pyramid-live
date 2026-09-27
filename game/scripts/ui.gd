@@ -26,6 +26,8 @@ var board: PanelContainer
 var board_title: Label
 var board_list: VBoxContainer
 var fps_label: Label
+var cta: Label
+var cta_t := 0.0
 var top_likes_rows: Array = []
 var top_donors_rows: Array = []
 var avatar_cache := {}
@@ -112,6 +114,12 @@ func _build_progress() -> void:
 	rules = _label("", 29, Color(1, 0.97, 0.88), 10)
 	rules.position = Vector2(0, 252)
 	rules.size = Vector2(1080, 80)
+	# call to action under the rules (hidden while the building vote panel is on screen)
+	cta = _label("♥  ЛАЙКАЙ ЧТОБЫ СТРОИТЬ  ♥", 58, Color(1, 0.45, 0.62), 14)
+	cta.position = Vector2(0, 336)
+	cta.size = Vector2(1080, 80)
+	cta.pivot_offset = Vector2(540, 40)
+	root.add_child(cta)
 	root.add_child(rules)
 
 
@@ -497,6 +505,11 @@ func hide_board() -> void:
 
 
 func _process(_delta: float) -> void:
+	if cta:
+		cta_t += _delta
+		cta.visible = not (vote_panel and vote_panel.visible)
+		var k := 1.0 + sin(cta_t * 4.0) * 0.05
+		cta.scale = Vector2(k, k)
 	if fps_label.visible:
 		fps_label.text = "%d FPS  draw %d  workers %d  pile %d" % [Engine.get_frames_per_second(),
 			Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), game.workers.size(), game.pending]
